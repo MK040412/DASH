@@ -1,0 +1,39 @@
+# IDE / Editor
+.claude/
+.marscode/
+.opencode/
+.vscode/
+*.swp
+*~
+
+# Cloned repositories (too large for git)
+qwen_review/Qwen3-VL/
+qwen_review/Qwen2.5-VL/
+qwen_review/pi06/openpi/
+pi06/openpi/
+openpi/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+*.out
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Large binary files
+*.so
+*.bin
+*.safetensors
+*.ckpt
+*.pth

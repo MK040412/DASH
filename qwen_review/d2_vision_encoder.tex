@@ -1,0 +1,210 @@
+\documentclass[border=10pt]{standalone}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, calc, positioning, fit, backgrounds, decorations.pathreplacing}
+
+\begin{document}
+
+\definecolor{attblue}{RGB}{173,216,230}
+\definecolor{mlporange}{RGB}{255,200,120}
+\definecolor{lnyellow}{RGB}{255,245,157}
+\definecolor{mergegreen}{RGB}{165,214,167}
+\definecolor{ropepurple}{RGB}{206,180,228}
+\definecolor{inputgray}{RGB}{224,224,224}
+\definecolor{blockborder}{RGB}{100,100,100}
+\definecolor{dimgray}{RGB}{80,80,80}
+\definecolor{residred}{RGB}{220,80,80}
+
+\begin{tikzpicture}[
+    >=Stealth,
+    node distance=0.5cm,
+    every node/.style={font=\sffamily\small},
+    box/.style={draw=blockborder, rounded corners=3pt, minimum width=5.6cm,
+                minimum height=0.8cm, align=center, line width=0.6pt},
+    smallbox/.style={draw=blockborder, rounded corners=2pt, minimum width=3.8cm,
+                     minimum height=0.6cm, align=center, line width=0.5pt, font=\sffamily\scriptsize},
+    dimlab/.style={font=\sffamily\tiny, text=dimgray},
+    arrow/.style={->, line width=0.7pt, blockborder},
+    thickarrow/.style={->, line width=1.2pt, blockborder},
+    resarrow/.style={->, line width=0.7pt, residred, dashed},
+]
+
+% ============================================================
+% INPUT
+% ============================================================
+\node[box, fill=inputgray, minimum height=1.0cm] (input)
+    {\textbf{Input Image / Video}};
+\node[dimlab, below=0.02cm of input] (inputdim) {$(B, 3, T, H, W)$};
+
+% ============================================================
+% PATCH EMBED
+% ============================================================
+\node[box, fill=inputgray!60, below=0.7cm of input, minimum height=1.8cm,
+      minimum width=6.4cm] (patchembed) {};
+\node[font=\sffamily\small\bfseries, anchor=north] at ([yshift=-0.06cm]patchembed.north)
+    {PatchEmbed};
+\node[smallbox, fill=white, below=0.45cm of patchembed.north] (conv3d)
+    {Conv3d$(3 \!\to\! 1152,\; k\!=\![2,14,14],\; s\!=\![2,14,14])$};
+\node[dimlab, below=0.08cm of conv3d]
+    {reshape $\to$ view$(-1,\; 1152)$};
+
+\node[dimlab, below=0.02cm of patchembed] (patchdim) {$(N,\; 1152)$};
+
+\draw[thickarrow] (inputdim.south) -- (patchembed.north);
+
+% ============================================================
+% 2D RoPE (side element) - positioned to right of vision block
+% ============================================================
+\node[box, fill=ropepurple, minimum width=3.4cm, minimum height=1.6cm,
+      right=2.2cm of patchembed.south east, anchor=south west, yshift=2.2cm]
+      (rope) {};
+\node[font=\sffamily\small\bfseries, anchor=north] at ([yshift=-0.08cm]rope.north)
+    {2D RoPE};
+\node[font=\sffamily\tiny, text=dimgray, anchor=north, text width=3cm, align=center]
+    at ([yshift=-0.50cm]rope.north)
+    {VisionRotaryEmbedding\\[1pt]head\_dim // 2 per axis\\[1pt](height, width) positions};
+
+% ============================================================
+% VISION BLOCK (expanded)
+% ============================================================
+\node[draw=blockborder, rounded corners=4pt, line width=1.0pt,
+      fill=white, minimum width=6.4cm, minimum height=8.0cm,
+      below=0.9cm of patchembed] (vblock) {};
+
+% Title
+\node[font=\sffamily\small\bfseries, anchor=north] at ([yshift=-0.12cm]vblock.north)
+    {Qwen2VLVisionBlock $\times 32$};
+
+% --- Pre-norm 1 + Attention arm ---
+\node[smallbox, fill=lnyellow, below=0.55cm of vblock.north, minimum width=4.4cm] (norm1)
+    {LayerNorm (norm1)};
+
+\node[smallbox, fill=attblue, below=0.40cm of norm1, minimum width=4.4cm,
+      minimum height=1.1cm] (attn) {};
+\node[font=\sffamily\scriptsize\bfseries] at ([yshift=0.16cm]attn.center)
+    {VisionAttention};
+\node[font=\sffamily\tiny, text=dimgray] at ([yshift=-0.16cm]attn.center)
+    {QKV Linear$(1152 \!\to\! 3456)$ $\to$ Window Attn $\to$ Proj};
+
+% Window attn annotation
+\node[font=\sffamily\tiny, text=dimgray, right=0.15cm of attn.east, anchor=west,
+      text width=2.2cm, align=left] (winann)
+    {window attention\\via \texttt{cu\_seqlens}};
+
+% Residual 1
+\node[circle, draw=residred, line width=0.7pt, inner sep=1.5pt,
+      below=0.40cm of attn, font=\sffamily\scriptsize\bfseries, text=residred] (add1) {+};
+
+% --- Pre-norm 2 + MLP arm ---
+\node[smallbox, fill=lnyellow, below=0.40cm of add1, minimum width=4.4cm] (norm2)
+    {LayerNorm (norm2)};
+
+\node[smallbox, fill=mlporange, below=0.40cm of norm2, minimum width=4.4cm,
+      minimum height=1.1cm] (mlp) {};
+\node[font=\sffamily\scriptsize\bfseries] at ([yshift=0.16cm]mlp.center)
+    {VisionMlp};
+\node[font=\sffamily\tiny, text=dimgray] at ([yshift=-0.16cm]mlp.center)
+    {Linear$(1152 \!\to\! 4608)$ $\to$ QuickGELU $\to$ Linear$(4608 \!\to\! 1152)$};
+
+% Residual 2
+\node[circle, draw=residred, line width=0.7pt, inner sep=1.5pt,
+      below=0.40cm of mlp, font=\sffamily\scriptsize\bfseries, text=residred] (add2) {+};
+
+% --- Internal arrows ---
+\draw[arrow] (norm1.south) -- (attn.north);
+\draw[arrow] (attn.south) -- (add1.north);
+\draw[arrow] (add1.south) -- (norm2.north);
+\draw[arrow] (norm2.south) -- (mlp.north);
+\draw[arrow] (mlp.south) -- (add2.north);
+
+% --- Residual skip connections ---
+% Skip 1: input bypasses norm1+attn to add1
+\draw[resarrow, rounded corners=3pt]
+    ([xshift=-2.8cm, yshift=0.15cm]norm1.north) -- ([xshift=-2.8cm]norm1.north)
+    |- (add1.west);
+
+% Skip 2: add1 output bypasses norm2+mlp to add2
+\draw[resarrow, rounded corners=3pt]
+    ([xshift=-2.8cm]norm2.north |- add1.south) -- ([xshift=-2.8cm]norm2.north)
+    |- (add2.west);
+
+% Residual labels
+\node[font=\sffamily\tiny, text=residred, rotate=90, anchor=south]
+    at ([xshift=-2.8cm, yshift=-0.4cm]norm1.north) {residual};
+\node[font=\sffamily\tiny, text=residred, rotate=90, anchor=south]
+    at ([xshift=-2.8cm, yshift=-0.4cm]norm2.north) {residual};
+
+% Entry/exit arrows for block
+\draw[thickarrow] (patchdim.south) -- ([yshift=0.15cm]vblock.north) -- (vblock.north);
+
+% --- RoPE arrow into attention ---
+\draw[->, line width=0.8pt, ropepurple!80!black, dashed]
+    (rope.south west) -- ([xshift=0.15cm]attn.north east);
+\node[font=\sffamily\tiny, text=ropepurple!60!black, anchor=south east]
+    at ([xshift=0.1cm, yshift=0.05cm]attn.north east) {apply to Q,K};
+
+% ============================================================
+% PATCH MERGER
+% ============================================================
+\node[draw=blockborder, rounded corners=4pt, line width=1.0pt,
+      fill=mergegreen!30, minimum width=6.4cm, minimum height=3.8cm,
+      below=0.9cm of vblock] (merger) {};
+
+\node[font=\sffamily\small\bfseries, anchor=north] at ([yshift=-0.10cm]merger.north)
+    {PatchMerger};
+
+\node[smallbox, fill=lnyellow, below=0.50cm of merger.north, minimum width=4.4cm] (lnq)
+    {LayerNorm (ln\_q)};
+
+\node[smallbox, fill=mergegreen!60, below=0.32cm of lnq, minimum width=4.4cm] (reshape)
+    {Reshape: view$(-1,\; 1152 \!\times\! 4)$ \ \ [2$\times$2 spatial merge]};
+
+\node[smallbox, fill=mergegreen!80, below=0.32cm of reshape, minimum width=4.4cm] (mergemlp)
+    {Linear$(4608 \!\to\! 4608)$ $\to$ GELU $\to$ Linear$(4608 \!\to\! d_{\mathrm{LLM}})$};
+
+% Internal arrows
+\draw[arrow] (lnq.south) -- (reshape.north);
+\draw[arrow] (reshape.south) -- (mergemlp.north);
+
+% Block to merger
+\node[dimlab, below=0.02cm of vblock] (blockdim) {$(N,\; 1152)$};
+\draw[thickarrow] (vblock.south) -- ([yshift=-0.02cm]blockdim.north);
+\draw[thickarrow] (blockdim.south) -- (merger.north);
+
+% ============================================================
+% OUTPUT
+% ============================================================
+\node[box, fill=inputgray, below=0.7cm of merger, minimum height=1.0cm] (output)
+    {\textbf{To LLM (Qwen2-VL Language Model)}};
+\node[dimlab, below=0.02cm of merger] (outdim) {$(N/4,\; d_{\mathrm{LLM}})$};
+
+\draw[thickarrow] (merger.south) -- ([yshift=-0.02cm]outdim.north);
+\draw[thickarrow] (outdim.south) -- (output.north);
+
+% ============================================================
+% RIGHT-SIDE LEGEND
+% ============================================================
+\node[anchor=north west, font=\sffamily\small\bfseries]
+    at ([xshift=2.2cm, yshift=-2.0cm]vblock.north east) (legtitle) {Legend};
+
+\node[smallbox, fill=attblue, minimum width=2.0cm, below=0.25cm of legtitle.south west,
+      anchor=north west] (legatt) {Attention};
+\node[smallbox, fill=mlporange, minimum width=2.0cm, below=0.18cm of legatt.south west,
+      anchor=north west] (legmlp) {MLP};
+\node[smallbox, fill=lnyellow, minimum width=2.0cm, below=0.18cm of legmlp.south west,
+      anchor=north west] (legln) {LayerNorm};
+\node[smallbox, fill=mergegreen!60, minimum width=2.0cm, below=0.18cm of legln.south west,
+      anchor=north west] (legmerge) {PatchMerger};
+\node[smallbox, fill=ropepurple, minimum width=2.0cm, below=0.18cm of legmerge.south west,
+      anchor=north west] (legrope) {2D RoPE};
+\node[draw=residred, dashed, line width=0.6pt, rounded corners=2pt,
+      minimum width=2.0cm, minimum height=0.6cm, below=0.18cm of legrope.south west,
+      anchor=north west, font=\sffamily\scriptsize, text=residred] (legres) {Residual};
+
+% ============================================================
+% TITLE
+% ============================================================
+\node[font=\sffamily\large\bfseries, above=0.5cm of input]
+    {Qwen2-VL Vision Encoder (Qwen2VisionTransformerPretrainedModel)};
+
+\end{tikzpicture}
+\end{document}
